@@ -108,7 +108,6 @@ public class FlyingScoutsman : BasePlugin
         if (activeWeapon == null || !activeWeapon.IsValid) return;
 
         string weaponName = activeWeapon.DesignerName?.ToLowerInvariant().Trim();
-        Console.WriteLine($"Active weapon: '{weaponName}'");
 
         if (string.IsNullOrEmpty(weaponName) || !_allowedWeapons.Contains(weaponName))
         {
