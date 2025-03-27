@@ -1,97 +1,127 @@
-﻿using CounterStrikeSharp.API;
+﻿using System.Text.Json;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Events;
+using CounterStrikeSharp.API.Modules.Utils;
+using CounterStrikeSharp.API.Modules.Timers;
 
 namespace FlyingScoutsman;
 public class FlyingScoutsman : BasePlugin
 {
     public override string ModuleName => "Flying Scoutsman";
-    public override string ModuleVersion => "1.0.0";
+    public override string ModuleVersion => "1.0.1";
     public override string ModuleAuthor => "devPoland";
+
+    public FlyingScoutsmanConfig Config { get; set; } = new();
+    private readonly HashSet<string> _allowedWeapons = new() { "weapon_ssg08", "weapon_knife", "weapon_c4" };
+
+    public bool PreventSpam = false;
+
+    public void OnConfigParsed(FlyingScoutsmanConfig config)
+    {
+        Config = config;
+    }
 
     public override void Load(bool hotReload)
     {
+        Config = LoadConfig();
         SetConvars();
         
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
-        RegisterEventHandler<EventItemPickup>(OnItemPickup);
         RegisterEventHandler<EventRoundStart>(OnRoundStart);
+
+        AddTimer(0.1f, () => 
+        {
+            foreach (var player in Utilities.GetPlayers().Where(p => p.IsValid && p.PawnIsAlive))
+            {
+                CheckPlayerWeapons(player);
+            }
+        }, TimerFlags.REPEAT);
+    }
+
+    private FlyingScoutsmanConfig LoadConfig()
+    {
+        var configPath = Path.Combine(ModuleDirectory, "flying_scoutsman.json");
+
+        if (!File.Exists(configPath))
+        {
+            SaveConfig(configPath, Config);
+            return Config;
+        }
+        
+        var json = File.ReadAllText(configPath);
+        return JsonSerializer.Deserialize<FlyingScoutsmanConfig>(json) ?? new FlyingScoutsmanConfig();
+    }
+
+    private FlyingScoutsmanConfig SaveConfig(string configPath, FlyingScoutsmanConfig config)
+    {
+        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(configPath, json);
+        return config;
     }
 
     private void SetConvars()
     {
-        Server.ExecuteCommand("mp_maxrounds 15");
-        Server.ExecuteCommand("sv_gravity 230");
-        Server.ExecuteCommand("mp_cash_awards 0");
-        Server.ExecuteCommand("mp_team_cash_awards 0");
-        Server.ExecuteCommand("mp_free_armor 0");
-        Server.ExecuteCommand("mp_buy_allow_guns 0");
-        Server.ExecuteCommand("weapon_accuracy_nospread 1");
-        Server.ExecuteCommand("sv_full_alltalk 1");
-        Server.ExecuteCommand("mp_roundtime 3");
-        Server.ExecuteCommand("mp_roundtime_defuse 2.25");
-        Server.ExecuteCommand("mp_halftime 0");
-        Server.ExecuteCommand("mp_solid_teammates 0");
+        Server.ExecuteCommand($"mp_maxrounds {Config.MpMaxRounds}");
+        Server.ExecuteCommand($"sv_gravity {Config.SvGravity}");
+        Server.ExecuteCommand($"mp_cash_awards {Config.MpCashAwards}");
+        Server.ExecuteCommand($"mp_team_cash_awards {Config.MpTeamCashAwards}");
+        Server.ExecuteCommand($"mp_free_armor {Config.MpFreeArmor}");
+        Server.ExecuteCommand($"mp_buy_allow_guns {Config.MpBuyAllowGuns}");
+        Server.ExecuteCommand($"weapon_accuracy_nospread {Config.WeaponAccuracyNospread}");
+        Server.ExecuteCommand($"sv_full_alltalk {Config.SvFullAlltalk}");
+        Server.ExecuteCommand($"mp_roundtime {Config.MpRoundtime}");
+        Server.ExecuteCommand($"mp_roundtime_defuse {Config.MpRoundtimeDefuse}");
+        Server.ExecuteCommand($"mp_halftime {Config.MpHalftime}");
+        Server.ExecuteCommand($"mp_solid_teammates {Config.MpSolidTeammates}");
+        Server.ExecuteCommand($"sv_autobunnyhopping {Config.SvAutoBunnyhopping}");
     }
 
     private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
     {
         var player = @event.Userid;
 
-        if (!player.IsValid || player.PlayerPawn.Value == null)
+        if (!player.IsValid || player.PlayerPawn?.Value == null)
             return HookResult.Continue;
 
-            var pawn = player.PlayerPawn.Value;
-            if (pawn == null || !pawn.IsValid) return HookResult.Continue;
+        var pawn = player.PlayerPawn.Value;
+        if (!pawn.IsValid) return HookResult.Continue;
 
+        player.GiveNamedItem("item_kevlar");
+        player.GiveNamedItem("weapon_ssg08");
+        player.GiveNamedItem("weapon_knife");
 
-            player.GiveNamedItem("item_kevlar");
-            player.GiveNamedItem("weapon_ssg08");
-            player.GiveNamedItem("weapon_knife");
-
-            if (player.InGameMoneyServices != null)
-                player.InGameMoneyServices.Account = 1;
+        if (player.InGameMoneyServices != null)
+            player.InGameMoneyServices.Account = 1;
 
         return HookResult.Continue;
     }
 
-    private HookResult OnItemPickup(EventItemPickup @event, GameEventInfo info)
+    private void CheckPlayerWeapons(CCSPlayerController player)
     {
-        var player = @event.Userid;
-        string weaponName = @event.Item.ToLower();
+        var pawn = player.PlayerPawn.Value;
+        if (pawn == null || !pawn.IsValid) return;
 
-        if (!player.IsValid || player.PlayerPawn.Value == null)
-            return HookResult.Continue;
+        var activeWeapon = pawn.WeaponServices?.ActiveWeapon?.Value;
+        if (activeWeapon == null || !activeWeapon.IsValid) return;
 
-        if (weaponName == "c4") 
-            return HookResult.Continue;
+        string weaponName = activeWeapon.DesignerName?.ToLowerInvariant().Trim();
+        Console.WriteLine($"Active weapon: '{weaponName}'");
 
-        if (weaponName != "ssg08" && weaponName != "knife")
+        if (string.IsNullOrEmpty(weaponName) || !_allowedWeapons.Contains(weaponName))
         {
-            var pawn = player.PlayerPawn.Value;
-            if (pawn == null || !pawn.IsValid) return HookResult.Continue;
-
-            var weapons = pawn.WeaponServices?.MyWeapons;
-            if (weapons != null)
-            {
-                foreach (var weaponHandle in weapons)
-                {
-                    var weapon = weaponHandle.Value;
-                    if (weapon != null && weapon.IsValid)
-                    {
-                        if (weapon.DesignerName.ToLower() == "weapon_"+weaponName)
-                        {
-                            weapon.Remove();
-                        }
-                    }
-                }
+            if (!PreventSpam){
+                player.PrintToChat($" {ChatColors.Purple}[Flying Scoutsman]{ChatColors.LightRed} this weapon is not allowed!");
+                PreventSpam = true;
+                AddTimer(2f, () => {PreventSpam = false;});
             }
+            
+            player.ExecuteClientCommand("slot3");
         }
-
-        return HookResult.Continue;
     }
+        
     private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
         SetConvars();
