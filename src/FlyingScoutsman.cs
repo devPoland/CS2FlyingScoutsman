@@ -11,7 +11,7 @@ namespace FlyingScoutsman;
 public class FlyingScoutsman : BasePlugin
 {
     public override string ModuleName => "Flying Scoutsman";
-    public override string ModuleVersion => "1.0.1";
+    public override string ModuleVersion => "1.0.2";
     public override string ModuleAuthor => "devPoland";
 
     public FlyingScoutsmanConfig Config { get; set; } = new();
