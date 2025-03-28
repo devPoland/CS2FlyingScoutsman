@@ -17,7 +17,7 @@ public class FlyingScoutsman : BasePlugin
     public FlyingScoutsmanConfig Config { get; set; } = new();
     private readonly HashSet<string> _allowedWeapons = new() { "weapon_ssg08", "weapon_knife", "weapon_c4" };
 
-    public bool PreventSpam = false;
+    private readonly HashSet<ulong> _preventSpamSteamIds = new();
 
     public void OnConfigParsed(FlyingScoutsmanConfig config)
     {
@@ -102,7 +102,7 @@ public class FlyingScoutsman : BasePlugin
     private void CheckPlayerWeapons(CCSPlayerController player)
     {
         var pawn = player.PlayerPawn.Value;
-        if (pawn == null || !pawn.IsValid) return;
+        if (pawn == null || !pawn.IsValid || player.IsBot) return;
 
         var activeWeapon = pawn.WeaponServices?.ActiveWeapon?.Value;
         if (activeWeapon == null || !activeWeapon.IsValid) return;
@@ -111,10 +111,13 @@ public class FlyingScoutsman : BasePlugin
 
         if (string.IsNullOrEmpty(weaponName) || !_allowedWeapons.Contains(weaponName))
         {
-            if (!PreventSpam){
+            var steamId = player.SteamID;
+            if (!_preventSpamSteamIds.Contains(steamId))
+            {
                 player.PrintToChat($" {ChatColors.Purple}[Flying Scoutsman]{ChatColors.LightRed} this weapon is not allowed!");
-                PreventSpam = true;
-                AddTimer(2f, () => {PreventSpam = false;});
+                _preventSpamSteamIds.Add(steamId);
+                
+                AddTimer(2.0f, () => { _preventSpamSteamIds.Remove(steamId); });
             }
             
             player.ExecuteClientCommand("slot3");
